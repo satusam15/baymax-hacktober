@@ -1,0 +1,1441 @@
+{
+  "name": "Circular Buddy - Notice to Action (v3)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "3bc263da-e861-4c27-8eb9-7b35ff52ee18",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1760,
+        304
+      ],
+      "webhookId": "f7e96a5e-3186-459e-8571-d2cc0224ac2d",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8c19ffa7-5e64-4cf3-9f83-eb4edb5fb3d5",
+              "leftValue": "={{ Array.isArray($json.message?.photo) && $json.message.photo.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e6b365b6-e214-432c-a6cb-a88174511eb2",
+      "name": "Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1536,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "Got it, reading your notice...",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "29c9d553-e4dd-4325-acae-438af974f2c3",
+      "name": "Ack Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1328,
+        112
+      ],
+      "webhookId": "6934a7fc-254a-4c6b-87ae-b6d147bec031",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $('Telegram Trigger').item.json.message.photo[Math.min(2, $('Telegram Trigger').item.json.message.photo.length - 1)].file_id }}",
+        "additionalFields": {}
+      },
+      "id": "54b29331-10d4-40fa-8b0d-46a3f3959d2a",
+      "name": "Get Telegram File",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1104,
+        112
+      ],
+      "webhookId": "b2d9ef59-5418-4b03-9f4f-0454f398a3d9",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "destinationKey": "image_base64",
+        "options": {}
+      },
+      "id": "b81cd05c-d4b8-4662-8f23-563649fa3d32",
+      "name": "Extract Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: \"You are reading a photo of a notice or circular, which may be in English, Kannada or Hindi, printed or handwritten. Today's date is \" + $now.toFormat('yyyy-MM-dd') + \". Extract ONLY what is visible. If a field is not visible or unclear, use null. NEVER guess. For every item, copy the exact line you read it from into source_line. Give each item a confidence from 0 to 1. Dates must be ISO format YYYY-MM-DD, for example 2026-11-14. Times as written, like 10:30 AM. amount_inr must be a number. Schema: {document_type, title, language_detected, events:[{name,date_iso,time,venue,source_line,confidence}], deadlines:[{what,date_iso,source_line,confidence}], amounts:[{purpose,amount_inr,due_date_iso,source_line,confidence}], documents_required:[{item,source_line}], applies_to:{classes:[],all_students,source_line}, unclear_items:[]}. IMPORTANT: Reply with ONLY the JSON object, starting with { and ending with }. No explanation, no reasoning, no bullet points, no markdown.\" }, { inline_data: { mime_type: \"image/jpeg\", data: $json.image_base64 } }] }] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "35af45ba-7ed5-4d0c-9ba2-5ce8d6643f02",
+      "name": "Gemma Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gO43trtzzqw0fYex",
+          "name": "Gemini API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $input.first().json || {};\nconst rawText = src?.choices?.[0]?.message?.content || '';\n\n// 1) Model failed (HTTP error, timeout, blocked, empty). Not the photo's fault.\nif (src.error || !rawText.trim()) {\n  return [{ json: { model_error: true, parse_ok: false, needs_review: false, unclear_text: '', extracted: {} } }];\n}\n\n// 2) Find the JSON object inside the text, even if there is extra chatter around it\nconst cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '');\nlet data = {};\nlet parse_ok = true;\ntry {\n  const s = cleaned.indexOf('{');\n  const e = cleaned.lastIndexOf('}');\n  data = JSON.parse(cleaned.slice(s, e + 1));\n  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Not an object');\n} catch (err) {\n  parse_ok = false;\n  data = {};\n}\n\nconst arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);\nconst str = (v) => (v === null || v === undefined ? '' : String(v).trim());\nconst isLow = (v) => {\n  if (v === null || v === undefined || v === '') return true;\n  const n = Number(v);\n  return Number.isNaN(n) || n < 0.7;\n};\nconst isDate = (s) => typeof s === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));\n\nconst events = arr(data.events);\nconst deadlines = arr(data.deadlines);\nconst amounts = arr(data.amounts);\nconst docs = arr(data.documents_required);\nconst modelUnclear = Array.isArray(data.unclear_items) ? data.unclear_items.map((x) => str(x)).filter(Boolean) : [];\n\n// 3) needs_review flags\nconst lowConfidence =\n  events.some((e) => isLow(e.confidence)) ||\n  deadlines.some((d) => isLow(d.confidence)) ||\n  amounts.some((a) => isLow(a.confidence));\nconst badDate = events.some((e) => !isDate(e.date_iso)) || deadlines.some((d) => !isDate(d.date_iso));\nconst nothingFound = events.length + deadlines.length + amounts.length + docs.length === 0;\nconst needs_review = !parse_ok || lowConfidence || badDate || nothingFound;\n\n// 4) What was unclear\nconst unclear = [];\nif (!parse_ok) unclear.push('The model reply could not be read as structured data.');\nif (parse_ok && nothingFound) unclear.push('No events, deadlines, fees or documents could be read from the photo.');\nevents.forEach((e) => {\n  const label = str(e.name) || 'an event';\n  if (isLow(e.confidence)) unclear.push('Event \"' + label + '\": confidence is low or missing.');\n  if (!isDate(e.date_iso)) unclear.push('Event \"' + label + '\": date not clear.');\n});\ndeadlines.forEach((d) => {\n  const label = str(d.what) || 'a deadline';\n  if (isLow(d.confidence)) unclear.push('Deadline \"' + label + '\": confidence is low or missing.');\n  if (!isDate(d.date_iso)) unclear.push('Deadline \"' + label + '\": date not clear.');\n});\namounts.forEach((a) => {\n  if (isLow(a.confidence)) unclear.push('Fee \"' + (str(a.purpose) || 'a fee') + '\": confidence is low or missing.');\n});\nmodelUnclear.forEach((u) => unclear.push('Model note: ' + u));\n\nconst unclear_text = unclear.map((u) => '- ' + u).join('\\n');\n\nreturn [{ json: { model_error: false, parse_ok, needs_review, unclear_text, extracted: data } }];"
+      },
+      "id": "d8ce2ae8-5686-4c63-b87f-47678c1a8de4",
+      "name": "Parse And Build",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "768090ec-938d-4df5-be31-7a1456b45916",
+              "leftValue": "={{ $json.model_error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5d32e160-1a8e-44d7-a909-64a884e3a8c5",
+      "name": "Model Error Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "The reader is busy right now. Please resend the photo in a minute.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d53ac062-296f-43fa-bd95-ad7d92c4888d",
+      "name": "Busy Notice",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        16,
+        -64
+      ],
+      "webhookId": "9e90b666-9f14-4cf7-9fa2-6ed45ae2e1a6",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=I could not read this notice clearly enough, so I will not act on guesses. Please send a clearer photo: good light, flat paper, whole notice in frame.\n\nWhat was unclear:\n{{ $json.unclear_text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "5b413363-f5dc-4d12-8a2f-82e70830ff4d",
+      "name": "Clearer Photo Notice",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        -48
+      ],
+      "webhookId": "48c6c643-6cf2-417a-8f52-c2b22ece07d8",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const notice = $input.first().json.extracted || {};\nconst events = Array.isArray(notice.events) ? notice.events.filter((e) => e && typeof e === 'object') : [];\n\n// Today in Asia/Kolkata\nconst parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());\nconst pick = (type) => Number(parts.find((p) => p.type === type).value);\nconst todayMs = Date.UTC(pick('year'), pick('month') - 1, pick('day'));\nconst isDate = (s) => typeof s === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));\n\nif (events.length === 0) {\n  return [{ json: { idx: 0, is_placeholder: true, has_venue: false, date_ok: false, days_ahead: null } }];\n}\n\nreturn events.map((event, idx) => {\n  const venue = typeof event.venue === 'string' ? event.venue.trim() : '';\n  const date_ok = isDate(event.date_iso);\n  const days_ahead = date_ok ? Math.round((Date.parse(event.date_iso + 'T00:00:00Z') - todayMs) / 86400000) : null;\n  return { json: { idx, event, has_venue: venue.length > 0, date_ok, days_ahead, is_placeholder: false } };\n});\n"
+      },
+      "id": "2c5ce292-a9c2-460f-9e1d-25eff8e77343",
+      "name": "Explode Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e0ebe9b1-43c9-493e-ba75-2b79506676f9",
+              "leftValue": "={{ $json.has_venue }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "15a156b0-0545-419b-ad69-9a1444056813",
+      "name": "Has Venue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://maps.googleapis.com/maps/api/geocode/json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "address",
+              "value": "={{ $json.event.venue }}"
+            },
+            {
+              "name": "region",
+              "value": "in"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "03afe296-76c3-474f-ba5b-0fa3c2e50d82",
+      "name": "Google Geocode",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "Kl9uiuGFW4PH3NSL",
+          "name": "Query Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Explode Events').item.json;\nconst res = $input.item.json || {};\nconst venue = typeof original.event?.venue === 'string' ? original.event.venue.trim() : '';\nconst r = Array.isArray(res.results) ? res.results[0] : null;\n\nif (res.status === 'OK' && r && r.geometry && r.geometry.location) {\n  const formatted = r.formatted_address || venue;\n  const place_id = r.place_id || '';\n  const maps_url = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(formatted)\n    + (place_id ? '&query_place_id=' + place_id : '');\n  return { json: { ...original, geo_ok: true, formatted_address: formatted, lat: r.geometry.location.lat, lng: r.geometry.location.lng, place_id, maps_url } };\n}\n\nreturn { json: { ...original, geo_ok: false, formatted_address: null, lat: null, lng: null, place_id: null,\n  maps_url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(venue) } };\n"
+      },
+      "id": "825529dc-b825-405f-8c78-e5209e37c948",
+      "name": "Attach Geo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "aab7b338-689b-4733-b283-8c5968ca90c0",
+      "name": "Merge Geo",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1104,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "860a5076-1a90-4dc5-886b-b0c13d248499",
+              "leftValue": "={{ $json.geo_ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "9e79617b-9908-4101-83e9-ad8c437e8113",
+              "leftValue": "={{ typeof $json.days_ahead === 'number' && $json.days_ahead >= 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c7cf5b81-42e2-4f72-8bd7-fbbb294f05b5",
+              "leftValue": "={{ typeof $json.days_ahead === 'number' && $json.days_ahead <= 14 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "14804f6a-7001-4869-b34c-2c1255a1a33e",
+      "name": "Weather Eligible?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1328,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.open-meteo.com/v1/forecast",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "latitude",
+              "value": "={{ $json.lat }}"
+            },
+            {
+              "name": "longitude",
+              "value": "={{ $json.lng }}"
+            },
+            {
+              "name": "daily",
+              "value": "temperature_2m_max,precipitation_probability_max"
+            },
+            {
+              "name": "timezone",
+              "value": "Asia/Kolkata"
+            },
+            {
+              "name": "start_date",
+              "value": "={{ $json.event.date_iso }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ $json.event.date_iso }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "1baf29c3-a2fc-43ab-ba1a-82d593f8c70f",
+      "name": "Open-Meteo Weather",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Merge Geo').item.json;\nconst res = $input.item.json || {};\nconst day = res.daily;\nlet weather_text = null;\n\nif (day && Array.isArray(day.time) && day.time[0]) {\n  const tmax = Array.isArray(day.temperature_2m_max) ? day.temperature_2m_max[0] : null;\n  const rain = Array.isArray(day.precipitation_probability_max) ? day.precipitation_probability_max[0] : null;\n  const parts = [];\n  if (typeof tmax === 'number') parts.push('up to ' + Math.round(tmax) + 'C');\n  if (typeof rain === 'number') parts.push('rain chance ' + Math.round(rain) + '%');\n  if (parts.length) {\n    weather_text = 'Forecast: ' + parts.join(', ');\n    if (typeof rain === 'number' && rain >= 50) weather_text += ' - carry an umbrella';\n  }\n}\n\nreturn { json: { ...original, weather_text } };\n"
+      },
+      "id": "f1ffb99f-ce39-47ea-a43f-616889a31899",
+      "name": "Attach Weather",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "2ca827fb-a95d-407f-9975-6b7a7ca82cee",
+      "name": "Merge Weather",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1984,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const IST_OFFSET_MS = 330 * 60000;\nconst pad = (n) => String(n).padStart(2, '0');\nconst str = (v) => (v === null || v === undefined ? '' : String(v).trim());\nconst esc = (v, fb) => str(v) || fb;\nconst quote = (s) => '\"' + esc(s, 'no source line') + '\"';\nconst isDate = (s) => typeof s === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));\nconst arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);\nconst parseTime = (t) => {\n  const s = str(t).toLowerCase();\n  const m = s.match(/^(\\d{1,2})(?:[:.](\\d{2}))?\\s*([ap])?\\.?\\s*(m\\.?)?$/);\n  if (!m) return null;\n  let h = Number(m[1]);\n  const min = m[2] ? Number(m[2]) : 0;\n  if (m[3] === 'p' && h < 12) h += 12;\n  if (m[3] === 'a' && h === 12) h = 0;\n  if (h > 23 || min > 59) return null;\n  return { h, min };\n};\nconst addDay = (iso) => {\n  const [y, mo, d] = iso.split('-').map(Number);\n  const dt = new Date(Date.UTC(y, mo - 1, d + 1));\n  return dt.getUTCFullYear() + '-' + pad(dt.getUTCMonth() + 1) + '-' + pad(dt.getUTCDate());\n};\nconst fmtIst = (ms) => {\n  const s = new Date(ms + IST_OFFSET_MS);\n  return s.getUTCFullYear() + '-' + pad(s.getUTCMonth() + 1) + '-' + pad(s.getUTCDate())\n    + 'T' + pad(s.getUTCHours()) + ':' + pad(s.getUTCMinutes()) + ':00+05:30';\n};\n\nconst items = $input.all().map((i) => i.json)\n  .filter((j) => j && typeof j === 'object')\n  .sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));\nconst notice = ($('Parse And Build').first().json || {}).extracted || {};\nconst eventItems = items.filter((i) => !i.is_placeholder && i.event);\nconst deadlines = arr(notice.deadlines);\nconst amounts = arr(notice.amounts);\nconst docs = arr(notice.documents_required);\nconst applies = notice.applies_to && typeof notice.applies_to === 'object' && !Array.isArray(notice.applies_to) ? notice.applies_to : {};\nconst title = str(notice.title);\n\nconst appliesParts = [];\nif (applies.all_students === true) appliesParts.push('All students');\nconst classes = Array.isArray(applies.classes) ? applies.classes.map((c) => str(c)).filter(Boolean) : [];\nif (classes.length) appliesParts.push('Classes: ' + classes.join(', '));\n\nconst hasAmt = (a) => a.amount_inr !== null && a.amount_inr !== undefined && a.amount_inr !== '';\nconst placeOf = (it) => (it.geo_ok === true && it.formatted_address ? str(it.formatted_address) : str(it.event.venue));\n\n// ---- reply_text ----\nconst out = [];\nout.push('Notice summary' + (title ? ': ' + title : ''));\nif (str(notice.document_type)) out.push('Type: ' + str(notice.document_type));\nif (str(notice.language_detected)) out.push('Language: ' + str(notice.language_detected));\nout.push('');\n\nif (eventItems.length) {\n  out.push('EVENTS');\n  eventItems.forEach((it) => {\n    const e = it.event;\n    const place = it.geo_ok === true && it.formatted_address\n      ? str(it.formatted_address) + ' (verified on Google Maps)'\n      : str(e.venue);\n    out.push('- ' + esc(e.name, 'Event') + ' | ' + esc(e.date_iso, 'date not clear') + (str(e.time) ? ' at ' + str(e.time) : ''));\n    if (place) out.push('   Venue: ' + place);\n    if (it.maps_url) out.push('   Map: ' + it.maps_url);\n    if (it.weather_text) out.push('   Weather: ' + it.weather_text);\n    out.push('   ' + quote(e.source_line));\n  });\n  out.push('');\n}\n\nif (deadlines.length) {\n  out.push('DEADLINES');\n  deadlines.forEach((d) => {\n    out.push('- ' + esc(d.what, 'Deadline') + ' | ' + esc(d.date_iso, 'date not clear'));\n    out.push('   ' + quote(d.source_line));\n  });\n  out.push('');\n}\n\nif (amounts.length) {\n  out.push('FEES');\n  amounts.forEach((a) => {\n    const amt = hasAmt(a) ? 'INR ' + a.amount_inr : 'amount not clear';\n    out.push('- ' + esc(a.purpose, 'Payment') + ': ' + amt + (isDate(a.due_date_iso) ? ' | due ' + a.due_date_iso : ''));\n    out.push('   ' + quote(a.source_line));\n  });\n  out.push('');\n}\n\nif (docs.length) {\n  out.push('DOCUMENTS NEEDED');\n  docs.forEach((d) => {\n    out.push('- ' + esc(d.item, 'Item'));\n    out.push('   ' + quote(d.source_line));\n  });\n  out.push('');\n}\n\nif (appliesParts.length || str(applies.source_line)) {\n  out.push('APPLIES TO');\n  out.push('- ' + (appliesParts.join('; ') || 'not clear'));\n  out.push('   ' + quote(applies.source_line));\n  out.push('');\n}\n\nconst footer = 'Always check the original notice before acting.';\nout.push(footer);\nlet reply_text = out.join('\\n').trim();\nif (reply_text.length > 3900) {\n  const body = out.slice(0, -1).join('\\n');\n  reply_text = body.slice(0, 3700).trim() + '\\n...(cut short to fit Telegram)\\n' + footer;\n}\n\n// ---- calendar_items ----\nconst calendar_items = [];\neventItems.forEach((it) => {\n  const e = it.event;\n  if (!isDate(e.date_iso)) return;\n  const location = placeOf(it);\n  const description = str(e.source_line);\n  const name = esc(e.name, 'Event');\n  const t = parseTime(e.time);\n  if (t) {\n    const [y, mo, d] = e.date_iso.split('-').map(Number);\n    const startMs = Date.UTC(y, mo - 1, d, t.h, t.min) - IST_OFFSET_MS;\n    calendar_items.push({ title: name, start: fmtIst(startMs), end: fmtIst(startMs + 3600000), all_day: false, location, description });\n  } else {\n    calendar_items.push({ title: name, start: e.date_iso, end: addDay(e.date_iso), all_day: true, location, description });\n  }\n});\ndeadlines.forEach((d) => {\n  if (!isDate(d.date_iso)) return;\n  calendar_items.push({\n    title: 'Deadline: ' + esc(d.what, 'Deadline'),\n    start: d.date_iso,\n    end: addDay(d.date_iso),\n    all_day: true,\n    location: '',\n    description: str(d.source_line)\n  });\n});\n\n// ---- approval_text ----\nconst whenOf = (c) => (c.all_day ? c.start : c.start.slice(0, 10) + ' ' + c.start.slice(11, 16));\nconst n = calendar_items.length;\nconst approval_text = n\n  ? (n === 1 ? 'Add this 1 date to your calendar? ' : 'Add these ' + n + ' dates to your calendar? ')\n    + calendar_items.map((c) => c.title + ' (' + whenOf(c) + ')').join('; ') + '.'\n  : '';\n\n// ---- facts_for_groq ----\nconst facts = [];\nfacts.push('Document: ' + (title || 'untitled') + (str(notice.document_type) ? ' (' + str(notice.document_type) + ')' : ''));\nif (eventItems.length) {\n  facts.push('Events:');\n  eventItems.forEach((it) => {\n    const e = it.event;\n    const place = placeOf(it);\n    facts.push('- ' + esc(e.name, 'Event') + ', ' + esc(e.date_iso, 'date unclear')\n      + (str(e.time) ? ' at ' + str(e.time) : '')\n      + (place ? ', venue: ' + place : '')\n      + (it.weather_text ? ', ' + it.weather_text : ''));\n  });\n}\nif (deadlines.length) {\n  facts.push('Deadlines:');\n  deadlines.forEach((d) => facts.push('- ' + esc(d.what, 'Deadline') + ', ' + esc(d.date_iso, 'date unclear')));\n}\nif (amounts.length) {\n  facts.push('Fees:');\n  amounts.forEach((a) => facts.push('- ' + esc(a.purpose, 'Payment') + ': '\n    + (hasAmt(a) ? 'INR ' + a.amount_inr : 'amount unclear')\n    + (isDate(a.due_date_iso) ? ', due ' + a.due_date_iso : '')));\n}\nif (docs.length) facts.push('Documents needed: ' + docs.map((d) => esc(d.item, 'item')).join('; '));\nif (appliesParts.length) facts.push('Applies to: ' + appliesParts.join('; '));\nconst facts_for_groq = facts.join('\\n');\n\nreturn [{ json: { reply_text, calendar_items, calendar_count: n, approval_text, facts_for_groq } }];\n"
+      },
+      "id": "7233442b-a9f6-4efd-bc66-34c3f28f4c7b",
+      "name": "Compose Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"openai/gpt-oss-120b\", temperature: 0.2, messages: [ { role: \"system\", content: \"You rewrite facts for a busy parent. Use ONLY the facts given. Never add or change any date, amount or place. Write 2 to 3 short plain sentences, no markdown.\" }, { role: \"user\", content: $json.facts_for_groq } ] }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "85fcb678-3162-46c3-899d-6d5acc8dff5c",
+      "name": "Groq Friendly Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2432,
+        112
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wbbWUSRtubtMPioR",
+          "name": "Groq API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ (($json.choices?.[0]?.message?.content ? $json.choices[0].message.content + '\\n\\n' : '') + $('Compose Reply').item.json.reply_text).slice(0, 4000) }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": false
+        }
+      },
+      "id": "7076985e-e7a5-42c9-b86e-34bede128e0a",
+      "name": "Send Summary",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2640,
+        112
+      ],
+      "webhookId": "7d7b0917-931e-4625-b83e-d4369fdf8275",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "66fa7ba6-e287-47dd-9190-e5e6c999f2ec",
+              "leftValue": "={{ $('Compose Reply').item.json.calendar_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fdcdec9a-593d-4cbb-bced-5ea4935ce2de",
+      "name": "Has Calendar Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2864,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "message": "={{ $('Compose Reply').item.json.approval_text }}",
+        "approvalOptions": {
+          "values": {
+            "approveLabel": "Yes, add"
+          }
+        },
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "619fc460-1245-4cde-9af6-e0cfbbe57ed5",
+      "name": "Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3088,
+        112
+      ],
+      "webhookId": "6a195b58-2cca-454c-b373-a3450e6d937e",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c31a1b71-ea97-47b2-aaff-3e6ee0b26797",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "10578fbf-bd59-437b-892b-1e5d2f9ae45e",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3312,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "Okay, I did nothing.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e722a084-f55c-4dab-a015-d950b80721f6",
+      "name": "Okay Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3520,
+        208
+      ],
+      "webhookId": "c4a4d11e-fde9-4dd0-91c9-7b77a04488bd",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cal = $('Compose Reply').first().json.calendar_items || [];\nreturn cal.map((c) => ({ json: c }));\n"
+      },
+      "id": "f40ecd27-ef3a-46b2-8a29-7f63501f9efe",
+      "name": "Split Calendar Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary"
+        },
+        "start": "={{ $json.start }}",
+        "end": "={{ $json.end }}",
+        "additionalFields": {
+          "allday": "={{ $json.all_day ? 'yes' : 'no' }}",
+          "description": "={{ $json.description }}",
+          "location": "={{ $json.location }}",
+          "summary": "={{ $json.title }}"
+        }
+      },
+      "id": "0818670c-74f2-48f5-bbcd-a301a0ef702e",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        3744,
+        0
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "1dsV30G7DxF1zLK9",
+          "name": "Google Calendar account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map((i) => i.json || {});\nconst ok = items.filter((i) => i.htmlLink);\nconst failed = items.length - ok.length;\nlet text;\nif (ok.length === 0) {\n  text = 'Could not add any events to your calendar. Please add them by hand.';\n} else {\n  text = 'Added ' + ok.length + ' event(s) to your calendar:\\n'\n    + ok.map((i) => '- ' + (i.summary || 'Event') + ': ' + i.htmlLink).join('\\n');\n  if (failed > 0) text += '\\nCould not add ' + failed + '. Please add them by hand.';\n}\nreturn [{ json: { text } }];\n"
+      },
+      "id": "e5e2ae62-a140-48f5-b2aa-5ad5460f9511",
+      "name": "Collect Links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3968,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "97295aa5-8ce8-41b1-af5c-66dd12cdde80",
+      "name": "Done Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4192,
+        0
+      ],
+      "webhookId": "2ec40bd1-5c4a-41be-9194-92579fe3110a",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.first().json || {};\nconst text = String(msg?.message?.text ?? '').trim();\nconst WELCOME = 'Send me a photo of a school notice and I will pull out dates, fees, venue maps and calendar events. Nothing is added without your approval.';\nconst isStart = /^\\/(start|help)(@\\S+)?(\\s|$)/i.test(text);\nconst route = !text || isStart ? 'static' : 'groq';\nreturn [{ json: { route, welcome_text: WELCOME, user_text: text } }];\n"
+      },
+      "id": "79a7fcbe-90c9-4f61-a20a-be1f3413aaaf",
+      "name": "Quick Rules",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a0faeb3c-5645-4872-bfc4-514c94fb1778",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "static",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc043335-abb2-4828-87bc-178037ea3419",
+      "name": "Static Route?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1104,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.welcome_text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "b10d11b7-aaee-4f92-9e55-a15c10d2b283",
+      "name": "Welcome Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -880,
+        512
+      ],
+      "webhookId": "764bc2f6-874a-49dc-8f40-16fd9f6f7b2e",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"openai/gpt-oss-20b\", temperature: 0, messages: [ { role: \"system\", content: \"Classify the user's message for a school-notice assistant. Reply with ONLY one word: CHAT, NEEDS_PHOTO (they refer to a notice, circular, deadline or event and have not sent a photo), or OTHER.\" }, { role: \"user\", content: $json.user_text } ] }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "f4002f40-bfd4-4699-b4b6-32ea2ca951e8",
+      "name": "Groq Intent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -880,
+        704
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wbbWUSRtubtMPioR",
+          "name": "Groq API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "89163fb5-aafc-4c4e-a038-d8b76efc7f80",
+                    "leftValue": "={{ String($json.choices?.[0]?.message?.content ?? '').trim().toLowerCase() }}",
+                    "rightValue": "needs_photo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "NEEDS_PHOTO"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "8dd5ab70-e42c-474f-924f-52b7e0fff573",
+      "name": "Intent Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -656,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "Please send a photo of the notice and I will read it for you.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "f7f1efe2-a9cc-4163-9df7-04fdbc6f67e7",
+      "name": "Needs Photo Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -448,
+        608
+      ],
+      "webhookId": "bb3abf31-ee22-441c-b320-c685cd2a8c0c",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"openai/gpt-oss-120b\", temperature: 0.3, messages: [ { role: \"system\", content: \"You are Circular Buddy, a short friendly assistant for parents. Answer in at most 4 sentences. If asked about a specific notice, ask them to send a photo. Never invent dates or fees.\" }, { role: \"user\", content: $('Quick Rules').item.json.user_text } ] }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "761831e2-3689-42a5-b866-b439e65d203e",
+      "name": "Groq Answer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -448,
+        800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wbbWUSRtubtMPioR",
+          "name": "Groq API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.choices?.[0]?.message?.content ?? 'Sorry, I could not answer that right now. Please try again.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "14c415f9-2389-4095-aaa2-922d0acaa59e",
+      "name": "Answer Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -224,
+        800
+      ],
+      "webhookId": "cc3fc92b-016a-4ab7-b235-6f2055a41796",
+      "credentials": {
+        "telegramApi": {
+          "id": "5ZGAPXjrvL5NhtVq",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Phase 4: Supabase memory, conflict check between notices, eligibility by child's class, Gmail reminders",
+        "height": 110,
+        "width": 520,
+        "color": 4
+      },
+      "id": "fde0b337-44d0-4858-88b7-e6bb38ee8f49",
+      "name": "Phase 4 Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1328,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"openai/gpt-oss-120b\", temperature: 0, response_format: { type: \"json_object\" }, messages: [ { role: \"system\", content: \"You convert notes about a school notice into ONE JSON object. Use ONLY information in the notes. Never invent anything. If a field is missing use null. Dates must be YYYY-MM-DD. amount_inr must be a number. confidence is a number from 0 to 1 (use 0.9 when the notes quote the exact source line, lower if unsure). Schema: {document_type, title, language_detected, events:[{name,date_iso,time,venue,source_line,confidence}], deadlines:[{what,date_iso,source_line,confidence}], amounts:[{purpose,amount_inr,due_date_iso,source_line,confidence}], documents_required:[{item,source_line}], applies_to:{classes:[],all_students,source_line}, unclear_items:[]}. Reply with the JSON object only.\" }, { role: \"user\", content: ($json.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\\n') } ] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -208,
+        368
+      ],
+      "id": "a04be44e-14ab-4092-b42e-de4ad46f0898",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wbbWUSRtubtMPioR",
+          "name": "Groq API Key"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Ack Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Quick Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack Message": {
+      "main": [
+        [
+          {
+            "node": "Get Telegram File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Telegram File": {
+      "main": [
+        [
+          {
+            "node": "Extract Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Base64": {
+      "main": [
+        [
+          {
+            "node": "Gemma Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemma Extract": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse And Build": {
+      "main": [
+        [
+          {
+            "node": "Model Error Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Error Check": {
+      "main": [
+        [
+          {
+            "node": "Busy Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Explode Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explode Events": {
+      "main": [
+        [
+          {
+            "node": "Has Venue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Venue?": {
+      "main": [
+        [
+          {
+            "node": "Google Geocode",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Geo",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Google Geocode": {
+      "main": [
+        [
+          {
+            "node": "Attach Geo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Geo": {
+      "main": [
+        [
+          {
+            "node": "Merge Geo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Geo": {
+      "main": [
+        [
+          {
+            "node": "Weather Eligible?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weather Eligible?": {
+      "main": [
+        [
+          {
+            "node": "Open-Meteo Weather",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Weather",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Open-Meteo Weather": {
+      "main": [
+        [
+          {
+            "node": "Attach Weather",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Weather": {
+      "main": [
+        [
+          {
+            "node": "Merge Weather",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Weather": {
+      "main": [
+        [
+          {
+            "node": "Compose Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Reply": {
+      "main": [
+        [
+          {
+            "node": "Groq Friendly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Friendly Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Summary": {
+      "main": [
+        [
+          {
+            "node": "Has Calendar Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Calendar Items?": {
+      "main": [
+        [
+          {
+            "node": "Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Split Calendar Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Okay Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Calendar Items": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Collect Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Links": {
+      "main": [
+        [
+          {
+            "node": "Done Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quick Rules": {
+      "main": [
+        [
+          {
+            "node": "Static Route?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Static Route?": {
+      "main": [
+        [
+          {
+            "node": "Welcome Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Groq Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Intent": {
+      "main": [
+        [
+          {
+            "node": "Intent Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Switch": {
+      "main": [
+        [
+          {
+            "node": "Needs Photo Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Groq Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Answer": {
+      "main": [
+        [
+          {
+            "node": "Answer Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Parse And Build",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "62ff9812-707f-413b-a63a-6edc4fd3d208",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9f0becb28d36b307e3bd84fcbb58d88b3ba991b28e7242fe42f4b39ca79e146f"
+  },
+  "id": "9cCCWUrDTpolXANF",
+  "tags": []
+}
